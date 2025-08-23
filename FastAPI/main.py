@@ -1,9 +1,10 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Annotated
 import models
 from database import engine, SessionLocal
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 app = FastAPI()
@@ -29,6 +30,11 @@ class WorkOrderResponse(BaseModel):
     
     class Config:
         orm_mode = True
+
+class UpdateOperationRequest(BaseModel):
+    id: str
+    start: datetime
+    end: datetime
     
 def GetDB():
     db = SessionLocal()
@@ -52,10 +58,10 @@ async def Feed(db: dbDependency):
     workOrder2 = models.WorkOrder(id="WO-1002", product="Widget B", qty=50)
     db.add_all([workOrder1, workOrder2])
     db.commit()
-    operation1 = models.Operation(id="OP-1", workOrderId="WO-1001", index=1, machineId="M1", name="Cut", start=datetime(2025, 8, 20, 9), end=datetime(2025, 8, 20, 10))
-    operation2 = models.Operation(id="OP-2", workOrderId="WO-1001", index=2, machineId="M2", name="Assemble", start=datetime(2025, 8, 20, 10, 10), end=datetime(2025, 8, 20, 12))
-    operation3 = models.Operation(id="OP-3", workOrderId="WO-1002", index=1, machineId="M1", name="Cut", start=datetime(2025, 8, 20, 9, 30), end=datetime(2025, 8, 20, 10, 30))
-    operation4 = models.Operation(id="OP-4", workOrderId="WO-1002", index=2, machineId="M2", name="Assemble", start=datetime(2025, 8, 20, 10, 40), end=datetime(2025, 8, 20, 12, 15))
+    operation1 = models.Operation(id="OP-1", workOrderId="WO-1001", index=1, machineId="M1", name="Cut", start=datetime(2025, 8, 20, 9, tzinfo=timezone.utc), end=datetime(2025, 8, 20, 10, tzinfo=timezone.utc))
+    operation2 = models.Operation(id="OP-2", workOrderId="WO-1001", index=2, machineId="M2", name="Assemble", start=datetime(2025, 8, 20, 10, 10, tzinfo=timezone.utc), end=datetime(2025, 8, 20, 12, tzinfo=timezone.utc))
+    operation3 = models.Operation(id="OP-3", workOrderId="WO-1002", index=1, machineId="M1", name="Cut", start=datetime(2025, 8, 20, 9, 30, tzinfo=timezone.utc), end=datetime(2025, 8, 20, 10, 30, tzinfo=timezone.utc))
+    operation4 = models.Operation(id="OP-4", workOrderId="WO-1002", index=2, machineId="M2", name="Assemble", start=datetime(2025, 8, 20, 10, 40, tzinfo=timezone.utc), end=datetime(2025, 8, 20, 12, 15, tzinfo=timezone.utc))
     db.add_all([operation1, operation2, operation3, operation4])
     db.commit()
 
@@ -71,8 +77,45 @@ async def Reset(db: dbDependency):
         db.commit()
     
 @app.get("/workorders", response_model=List[WorkOrderResponse])
-async def WorkOrders(db: dbDependency):
+async def GetWorkOrders(db: dbDependency):
     workOrders = db.query(models.WorkOrder).all()
     if not workOrders:
         raise HTTPException(status_code=404, detail="Work orders are not found!")
     return workOrders
+
+@app.patch("/operations")
+async def UpdateOperation(updateOperationRequest: UpdateOperationRequest, db: dbDependency):
+    if updateOperationRequest.start.tzinfo is None:
+        updateOperationRequest.start = updateOperationRequest.start.replace(tzinfo=timezone.utc)
+    else:
+        updateOperationRequest.start = updateOperationRequest.start.astimezone(timezone.utc)
+    if updateOperationRequest.end.tzinfo is None:
+        updateOperationRequest.end = updateOperationRequest.end.replace(tzinfo=timezone.utc)
+    else:
+        updateOperationRequest.end = updateOperationRequest.end.astimezone(timezone.utc)
+        
+    if (updateOperationRequest.start > updateOperationRequest.end):
+        raise HTTPException(status_code=400, detail="End date must be greater then start date!")
+    
+    if (updateOperationRequest.start < datetime.now(timezone.utc)):
+        raise HTTPException(status_code=400, detail="R3 - No past: an operation’s start cannot be before “now”.")
+        
+    operation = db.query(models.Operation).filter_by(id=updateOperationRequest.id).first()
+    if not operation:
+        raise HTTPException(status_code=404, detail=f"Operation {updateOperationRequest.id} not found!")
+    
+    if operation.index > 1:
+        pastOperationInWorkOrder = db.query(models.Operation).filter_by(workOrderId=operation.workOrderId, index=operation.index-1).first()
+        if not pastOperationInWorkOrder:
+            raise HTTPException(status_code=404, detail=f"The previous operation in the same work order as operation {operation.id} could not be found!")
+        if updateOperationRequest.start < pastOperationInWorkOrder.end:
+            raise HTTPException(status_code=400, detail="R1 - Precedence (within WO): operation k must start at or after operation k-1 ends.")
+        
+    if db.query(models.Operation).filter(and_(models.Operation.machineId == operation.machineId, or_(and_(updateOperationRequest.start > models.Operation.start, updateOperationRequest.start < models.Operation.end), and_(updateOperationRequest.end > models.Operation.start, updateOperationRequest.end < models.Operation.end)))).first():
+        raise HTTPException(status_code=400, detail="R2 - Lane exclusivity: no overlaps with other operations on the same machineId.")
+    
+    operation.start = updateOperationRequest.start
+    operation.end = updateOperationRequest.end
+    db.commit()
+    db.refresh(operation)
+    return { "message": f"Operation {updateOperationRequest.id} updated successfully!", "id": operation.id, "start": operation.start, "end": operation.end }

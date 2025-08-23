@@ -1,5 +1,6 @@
 from sqlalchemy import Column, String, Integer, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 from database import Base
 
 class WorkOrder(Base):
@@ -19,7 +20,7 @@ class Operation(Base):
     index = Column(Integer)
     machineId = Column(String)
     name = Column(String)
-    start = Column(DateTime)
-    end = Column(DateTime)
+    start = Column(DateTime(timezone=True), server_default=func.now())
+    end = Column(DateTime(timezone=True), server_default=func.now())
     
     workorder = relationship("WorkOrder", back_populates="operations")
