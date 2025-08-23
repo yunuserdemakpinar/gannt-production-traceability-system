@@ -1,4 +1,5 @@
 from sqlalchemy import Column, String, Integer, ForeignKey, DateTime
+from sqlalchemy.orm import relationship
 from database import Base
 
 class WorkOrder(Base):
@@ -7,6 +8,8 @@ class WorkOrder(Base):
     id = Column(String, primary_key=True, index=True)
     product = Column(String)
     qty = Column(Integer)
+    
+    operations = relationship("Operation", back_populates="workorder")
     
 class Operation(Base):
     __tablename__ = "Operations"
@@ -18,3 +21,5 @@ class Operation(Base):
     name = Column(String)
     start = Column(DateTime)
     end = Column(DateTime)
+    
+    workorder = relationship("WorkOrder", back_populates="operations")
