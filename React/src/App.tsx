@@ -2,9 +2,18 @@ import { Button, Grid, GridItem, List, ListItem } from "@chakra-ui/react";
 import NavBar from "./components/NavBar";
 import WorkOrderList from "./components/WorkOrderList";
 import { useState } from "react";
+import WorkOrderGannt from "./components/WorkOrderGannt";
+import UpdateError from "./components/UpdateError";
+import { Operation } from "./hooks/userOperations";
+import UpdateOperationModal from "./components/UpdateOperationModal";
 
 const App = () => {
   const [isList, setIsList] = useState(true);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [updateOperation, setUpdateOperation] = useState<Operation | null>(
+    null
+  );
+  const [refreshFromApp, setRefreshFromApp] = useState(false);
 
   return (
     <Grid
@@ -38,7 +47,33 @@ const App = () => {
           </ListItem>
         </List>
       </GridItem>
-      <GridItem area="main">{isList && <WorkOrderList />}</GridItem>
+      <GridItem area="main">
+        {isList && <WorkOrderList />}
+        {!isList && (
+          <>
+            <UpdateOperationModal
+              isOpen={updateOperation ? true : false}
+              onClose={() => setUpdateOperation(null)}
+              operation={updateOperation}
+              onUpdateError={(updateError) => setUpdateError(updateError)}
+              onRefresh={() => setRefreshFromApp(!refreshFromApp)}
+            />
+            {updateError && (
+              <UpdateError
+                updateError={updateError}
+                onClose={() => setUpdateError(null)}
+              />
+            )}
+            <WorkOrderGannt
+              onUpdateError={(updateError) => setUpdateError(updateError)}
+              onUpdateOperation={(updateOperation) =>
+                setUpdateOperation(updateOperation)
+              }
+              refreshFromApp={refreshFromApp}
+            />
+          </>
+        )}
+      </GridItem>
     </Grid>
   );
 };

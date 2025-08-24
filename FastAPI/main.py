@@ -66,10 +66,10 @@ async def Feed(db: dbDependency):
     workOrder2 = models.WorkOrder(id="WO-1002", product="Widget B", qty=50)
     db.add_all([workOrder1, workOrder2])
     db.commit()
-    operation1 = models.Operation(id="OP-1", workOrderId="WO-1001", index=1, machineId="M1", name="Cut", start=datetime(2025, 8, 20, 9, tzinfo=timezone.utc), end=datetime(2025, 8, 20, 10, tzinfo=timezone.utc))
-    operation2 = models.Operation(id="OP-2", workOrderId="WO-1001", index=2, machineId="M2", name="Assemble", start=datetime(2025, 8, 20, 10, 10, tzinfo=timezone.utc), end=datetime(2025, 8, 20, 12, tzinfo=timezone.utc))
-    operation3 = models.Operation(id="OP-3", workOrderId="WO-1002", index=1, machineId="M1", name="Cut", start=datetime(2025, 8, 20, 9, 30, tzinfo=timezone.utc), end=datetime(2025, 8, 20, 10, 30, tzinfo=timezone.utc))
-    operation4 = models.Operation(id="OP-4", workOrderId="WO-1002", index=2, machineId="M2", name="Assemble", start=datetime(2025, 8, 20, 10, 40, tzinfo=timezone.utc), end=datetime(2025, 8, 20, 12, 15, tzinfo=timezone.utc))
+    operation1 = models.Operation(id="OP-1", workOrderId="WO-1001", index=1, machineId="M1", name="Cut", start=datetime(2025, 8, 24, 9, tzinfo=timezone.utc), end=datetime(2025, 8, 24, 10, tzinfo=timezone.utc))
+    operation2 = models.Operation(id="OP-2", workOrderId="WO-1001", index=2, machineId="M2", name="Assemble", start=datetime(2025, 8, 24, 10, 10, tzinfo=timezone.utc), end=datetime(2025, 8, 24, 12, tzinfo=timezone.utc))
+    operation3 = models.Operation(id="OP-3", workOrderId="WO-1002", index=1, machineId="M1", name="Cut", start=datetime(2025, 8, 24, 9, 30, tzinfo=timezone.utc), end=datetime(2025, 8, 24, 10, 30, tzinfo=timezone.utc))
+    operation4 = models.Operation(id="OP-4", workOrderId="WO-1002", index=2, machineId="M2", name="Assemble", start=datetime(2025, 8, 24, 10, 40, tzinfo=timezone.utc), end=datetime(2025, 8, 24, 12, 15, tzinfo=timezone.utc))
     db.add_all([operation1, operation2, operation3, operation4])
     db.commit()
 
@@ -90,6 +90,13 @@ async def GetWorkOrders(db: dbDependency):
     if not workOrders:
         raise HTTPException(status_code=404, detail="Work orders are not found!")
     return workOrders
+
+@app.get("/operations", response_model=List[OperationResponse])
+async def GetOperations(db: dbDependency):
+    operations = db.query(models.Operation).all()
+    if not operations:
+        raise HTTPException(status_code=404, detail="Operations are not found!")
+    return operations
 
 @app.patch("/operations")
 async def UpdateOperation(updateOperationRequest: UpdateOperationRequest, db: dbDependency):
@@ -118,6 +125,11 @@ async def UpdateOperation(updateOperationRequest: UpdateOperationRequest, db: db
             raise HTTPException(status_code=404, detail=f"The previous operation in the same work order as operation {operation.id} could not be found!")
         if updateOperationRequest.start < pastOperationInWorkOrder.end:
             raise HTTPException(status_code=400, detail="R1 - Precedence (within WO): operation k must start at or after operation k-1 ends.")
+    
+    
+    nextOperationInWorkOrder = db.query(models.Operation).filter_by(workOrderId=operation.workOrderId, index=operation.index+1).first()
+    if nextOperationInWorkOrder and nextOperationInWorkOrder.start < updateOperationRequest.end:
+        raise HTTPException(status_code=400, detail="R1 - Precedence (within WO): operation k must start at or after operation k-1 ends.")
         
     if db.query(models.Operation).filter(and_(models.Operation.machineId == operation.machineId, or_(and_(updateOperationRequest.start > models.Operation.start, updateOperationRequest.start < models.Operation.end), and_(updateOperationRequest.end > models.Operation.start, updateOperationRequest.end < models.Operation.end)))).first():
         raise HTTPException(status_code=400, detail="R2 - Lane exclusivity: no overlaps with other operations on the same machineId.")
